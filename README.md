@@ -23,6 +23,8 @@ we are using BAllC file path + '.bci' as the index file path.
 
 **The BAllC file must be indexed!** Whether or not you provide the index file path!
 
+Check the **test.js** for the test usages!
+
 ```javascript
 //if the index file(.bci) path is not provided, it will be default by filePath + '.bci'
 const testBallc = new BAllC(filePath);
@@ -31,8 +33,13 @@ const testBallc = new BAllC(filePath, indexPath);
 ```
 
 ### BAllC constructor with remote files
-
-To do...
+Same usage as the local files, but noted that the filePath should start with "http". 
+```javascript
+//if the index file(.bci) path is not provided, it will be default by filePath + '.bci'
+const testBallc = new BAllC(filePath);
+// or 
+const testBallc = new BAllC(filePath, indexPath);
+```
 
 ### BAllC functions
 #### query

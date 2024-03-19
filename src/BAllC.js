@@ -7,8 +7,11 @@
 import fs from "fs";
 import zlib from 'zlib';
 // import 'generic-filehandle';
-import localfile from 'generic-filehandle';
-const { LocalFile } = localfile;
+// import { LocalFile, RemoteFile} from 'generic-filehandle'
+import pkg from 'generic-filehandle';
+import axios from 'axios';
+const { LocalFile, RemoteFile} = pkg;
+
 import { Buffer } from 'buffer';
 import { unzip } from '@gmod/bgzf-filehandle';
 
@@ -76,15 +79,31 @@ class ChrRange {
 }
 
 class BAllC {
-    constructor(path) {
+    constructor(path, bciPath='') {
         this.ballcPath = path;
-        this.bciPath = path+'.bci';
-        this.ballcFileHandle = new LocalFile(this.ballcPath);
-        if(!fileExists(path+'.bci')){
-            throw new Error("Index not found!");
+
+        if (path.startsWith("http")){
+            this.remote = true;
+        } else {
+            this.remote = false;
         }
-        if(!fileExists(path)){
-            throw new Error("BAllC file not found!");
+
+        if(bciPath == ''){
+            this.bciPath = path+'.bci';
+        } else {
+            this.bciPath = bciPath;
+        }
+
+        if (this.remote){
+            this.ballcFileHandle = new RemoteFile(this.ballcPath);
+        } else {
+            this.ballcFileHandle = new LocalFile(this.ballcPath);
+            if(!fileExists(path+'.bci')){
+                throw new Error("Index not found!");
+            }
+            if(!fileExists(path)){
+                throw new Error("BAllC file not found!");
+            }
         }
     }
 
@@ -304,14 +323,19 @@ function viewHeaderBAIIC(file_content){
 
 async function queryBGZFIndex(filePath, chrRange, ref_id) {
     let endFlag = false;
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         // console.log(filePath);
-        const inputStream = fs.createReadStream(filePath);
         const gzipStream = zlib.createGunzip();
         let hexString = '';
-
+        if(filePath.startsWith('http')){
+            const response = await axios.get(filePath, { responseType: 'stream' });
+            response.data.pipe(gzipStream)
+        } else {
+            const inputStream = fs.createReadStream(filePath);
+            inputStream.pipe(gzipStream);
+        }
         // Pipe the input stream (BGZF file) into the gzip stream
-        inputStream.pipe(gzipStream);
+
         // const outputStream = fs.createWriteStream('output_test.txt');
         // gzipStream.pipe(outputStream);
 
@@ -352,7 +376,7 @@ function BintoVirtualOffset(hexString, pos){
     return {'chunkStart': chunkStart, 'chunkEnd': chunkEnd}
 }
 
-function queryBAIIC(chrRange, hexString, refID){
+function queryBAIIC(chrRange,hexString, refID){
     const startBin = reg_to_bin(chrRange.start, chrRange.start+1);
     const endBin = reg_to_bin(chrRange.end, chrRange.end+1);
 
