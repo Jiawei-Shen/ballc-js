@@ -352,7 +352,7 @@ function BintoVirtualOffset(hexString, pos){
     return {'chunkStart': chunkStart, 'chunkEnd': chunkEnd}
 }
 
-function queryBAIIC(chrRange,hexString, refID){
+function queryBAIIC(chrRange, hexString, refID){
     const startBin = reg_to_bin(chrRange.start, chrRange.start+1);
     const endBin = reg_to_bin(chrRange.end, chrRange.end+1);
 
