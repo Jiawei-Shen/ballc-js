@@ -7,7 +7,7 @@ export default {
         format: 'commonjs', // Output format (UMD, CommonJS, ES module, etc.)
         name: 'MyLibrary', // Name of the exported variable in the UMD bundle
     },
-    external: ['fs', 'zlib', 'buffer', 'generic-filehandle', '@gmod/bgzf-filehandle', 'axios'],
+    external: ['fs', 'zlib', 'buffer', 'generic-filehandle', '@gmod/bgzf-filehandle', 'axios', 'node-fetch'],
 
     plugins: [
         // Other plugins...

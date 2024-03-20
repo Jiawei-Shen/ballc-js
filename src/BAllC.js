@@ -5,7 +5,6 @@ import { Buffer } from "buffer";
 import { unzip } from "@gmod/bgzf-filehandle";
 
 //todo: 1. sc==0/1, mc and cov type.
-//todo: 2. fetch the remote file.
 
 //The length is defined by the bytes number, 1 hex number is 4 bits, 1 byte = 2 hex number = 8 bits.
 const MAGIC_LENGTH = 6;
@@ -106,7 +105,7 @@ class BAllC {
         const ref_id = this.header["refs"].findIndex((dict) => dict["ref_name"] === inputChrRange.chr);
         const chunkAddress = await queryBGZFIndex(this.indexData, inputChrRange, ref_id);
         const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
-        const mc_records = reviseDuplicates(mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
+        const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
         // console.log(mc_records);
         return mc_records;
     }
@@ -126,10 +125,11 @@ class BAllC {
     }
 }
 
-function reviseDuplicates(list, start, end) {
+function reviseDuplicates(herderRefs, list, start, end) {
     const uniqueList = [];
     list.forEach((item) => {
         if (!hasItem(uniqueList, item) && start <= item.pos && end >= item.pos) {
+            item['chr'] = herderRefs[item['ref_id']]['ref_name'];
             uniqueList.push(item);
         }
     });
