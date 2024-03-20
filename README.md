@@ -10,12 +10,12 @@ Requires [Node](https://nodejs.org/)
 ```javascript
 import { BAllC } from "ballc";
 
-//@para: filePath (str): https://path/to/ballc or /path/to/ballc
+//@para: filePath (object): {path: /path/to/ballc, url: https://path/to/ballc, ...}, path or url is required. 
 //@para: chrRange (str): chr{chrName}:{start}-{end}
 
 async function testBAllC(filePath, chrRange) {
     const testBallc = new BAllC(filePath);
-    // testBallc.query('chr1:0-1000000')
+
     const mc_records = await testBallc.query(chrRange);
     const header = await testBallc.getHeader();
     
