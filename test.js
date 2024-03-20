@@ -6,7 +6,8 @@ async function queryBAllC(filePath, range) {
     const mc_records = await testBallC.query(range);
     const header = await testBallC.getHeader();
 
-    return 0;
+    return mc_records;
+    // return header;
 }
 
 // local test

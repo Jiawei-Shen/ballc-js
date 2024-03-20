@@ -1,103 +1,38 @@
-# BAllC-JS
-Welcome to the BAllC-JS! This package provides a Javascript tool to read and query the BAllC files. The original C++ BAllC project is available [here](https://github.com/jksr/ballcools).
+# BAllC
+BAllC is a javascript API for reading and querying the BAllC files. The original C++ BAllC project is available [here](https://github.com/jksr/ballcools).
 
+# Installation
+Requires [Node](https://nodejs.org/)
 
-## Install
+    $ npm install ballc
 
-    $ npm install --save @jiawei_s/ballc
-
-## Usage
-
-### Importing the module
-
+# Examples
 ```javascript
-import {BAllC} from '@jiawei_s/ballc';
-```
+import { BAllC } from "ballc";
 
-### Intialize a constructor with remote or local files
+//@para: filePath (str): https://path/to/ballc or /path/to/ballc
+//@para: chrRange (str): chr{chrName}:{start}-{end}
 
-After imported the BAllC package, you can build the new BAllC instance with a BAllC file(.ballc) remote URL or local path, 
-and an optional index file(.bci) path, if the index file path is not provided 
-we are using BAllC file URL/path + '.bci' as the index file path.
-
-**The BAllC file must be indexed!** Whether or not you provide the index file path!
-
-Check the **test.js** for the test usages!
-
-```javascript
-//if the index file(.bci) path is not provided, it will be default by filePath + '.bci'
-const testBallc = new BAllC({url: "https URL to a ballc file"});
-//if the ballc file and index file locate in a local folder:
-const testBallc = new BAllC({path: "path to a ballc file"});
-// if index file has a different name or location: 
-const testBallc = new BAllC({url: "ballc file URL", indexURL: "ballc index file URL"});
-```
-
-
-### Main functions
-
-#### query
-
-```javascript
-    //In Class function, chrRange example: "chr1:0-100000"
-    async query(chrRange)
-
-    //Usage, the mc_records is an array of objects [Object, ...], the range format: "chr{chrName}:{start}-{end}"
-    const mc_records = await testBallc.query(range);
-```
-
-Here's the [doc](https://github.com/jksr/ballcools/blob/main/doc/ballc_spec.pdf) for the mc_records. 
-![img.png](imgs/mc_records_format.png)
-
-#### getHeader
-
-```javascript
-    //In Class function
-    async getHeader()
-
-    //Usage, the header is an array of objects [Object, ...]
+async function testBAllC(filePath, chrRange) {
+    const testBallc = new BAllC(filePath);
+    // testBallc.query('chr1:0-1000000')
+    const mc_records = await testBallc.query(chrRange);
     const header = await testBallc.getHeader();
-```
-Here's the [doc](https://github.com/jksr/ballcools/blob/main/doc/ballc_spec.pdf) for the header.
-![header_format.png](imgs/header_format.png)
+    
+    return mc_records;
+    // return header;
+}
 
-### Some utility functions
+// local test
+// const results = await queryBAllC(
+//     { path: "/path/to/ballc" },
+//     "chr1:0-1000000"
+// );
 
-Here are some functions that you may find them helpful, but they are not in the BAllC class.
-
-#### VirtualOffset
-```javascript
-//This Class initiate the vitual offset of the bgzf file format. 
-class VirtualOffset(blockAddress, blockOffset)
-```
-For the virtual offset of bgzf file, you can find details [here](https://biopython.org/docs/1.75/api/Bio.bgzf.html)
-
-#### ChrRange
-```javascript
-//This Class initiate the query range. chrRange: "chr{chrName}:{start}-{end}"
-class ChrRange(chrRange)
+//remote test
+const results = await queryBAllC(
+    { url: "https://wangftp.wustl.edu/~dli/ballc/ballc/HBA_200622_H1930001_A46_1_P2-1-F3-K1.ballc" },
+    "chr1:0-1000000"
+);
 ```
 
-#### reg_to_bin
-```javascript
-//An utility function in bgzf
-function reg_to_bin(beg, end)
-```
-You can find reg_to_bin function [here](https://samtools.github.io/hts-specs/tabix.pdf)
-
-#### queryBGZFIndex and queryBAIIC
-```javascript
-//This is the function that reads the bgzf index.
-async function queryBGZFIndex(filePath, chrRange, ref_id)
-//This is the core function that search the target query range in the index file(.bci)
-function queryBAIIC(chrRange, hexString, refID)
-```
-
-#### queryChunk
-```javascript
-//This is the core function that queries the chunks after we convert the virtual offsets to the offsets in the .ballc file.
-async function queryChunk(fileHandle, blockAddress ,startOffset, endOffset)
-```
-
-### Sample BAllC file
-We also provided some BAllC sample files (obtained from Wei Tian) for test. You can download the some files from [here](https://wangftp.wustl.edu/~dli/ballc/ballc/).
