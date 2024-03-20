@@ -1,8 +1,5 @@
 # BAllC-JS
-Welcome to the BAllC-JS. 
-
-This project provides a Javascript tool to read and query the BAllC files. 
-The original C++ BAllC project is available [here](https://github.com/jksr/ballcools).
+Welcome to the BAllC-JS! This package provides a Javascript tool to read and query the BAllC files. The original C++ BAllC project is available [here](https://github.com/jksr/ballcools).
 
 
 ## Install
@@ -12,14 +9,16 @@ The original C++ BAllC project is available [here](https://github.com/jksr/ballc
 ## Usage
 
 ### Importing the module
+
 ```javascript
 import {BAllC} from '@jiawei_s/ballc';
 ```
 
-### BAllC constructor with local files
-After imported the BAllC package, you can build the new BAllC instance with a BAllC file(.ballc) path 
+### Intialize a constructor with remote or local files
+
+After imported the BAllC package, you can build the new BAllC instance with a BAllC file(.ballc) remote URL or local path, 
 and an optional index file(.bci) path, if the index file path is not provided 
-we are using BAllC file path + '.bci' as the index file path.
+we are using BAllC file URL/path + '.bci' as the index file path.
 
 **The BAllC file must be indexed!** Whether or not you provide the index file path!
 
@@ -27,22 +26,18 @@ Check the **test.js** for the test usages!
 
 ```javascript
 //if the index file(.bci) path is not provided, it will be default by filePath + '.bci'
-const testBallc = new BAllC(filePath);
-// or 
-const testBallc = new BAllC(filePath, indexPath);
+const testBallc = new BAllC({url: "https URL to a ballc file"});
+//if the ballc file and index file locate in a local folder:
+const testBallc = new BAllC({path: "path to a ballc file"});
+// if index file has a different name or location: 
+const testBallc = new BAllC({url: "ballc file URL", indexURL: "ballc index file URL"});
 ```
 
-### BAllC constructor with remote files
-Same usage as the local files, but noted that the filePath should start with "http". 
-```javascript
-//if the index file(.bci) path is not provided, it will be default by filePath + '.bci'
-const testBallc = new BAllC(filePath);
-// or 
-const testBallc = new BAllC(filePath, indexPath);
-```
 
-### BAllC functions
+### Main functions
+
 #### query
+
 ```javascript
     //In Class function, chrRange example: "chr1:0-100000"
     async query(chrRange)
@@ -50,10 +45,12 @@ const testBallc = new BAllC(filePath, indexPath);
     //Usage, the mc_records is an array of objects [Object, ...], the range format: "chr{chrName}:{start}-{end}"
     const mc_records = await testBallc.query(range);
 ```
+
 Here's the [doc](https://github.com/jksr/ballcools/blob/main/doc/ballc_spec.pdf) for the mc_records. 
 ![img.png](imgs/mc_records_format.png)
 
 #### getHeader
+
 ```javascript
     //In Class function
     async getHeader()
@@ -65,7 +62,9 @@ Here's the [doc](https://github.com/jksr/ballcools/blob/main/doc/ballc_spec.pdf)
 ![header_format.png](imgs/header_format.png)
 
 ### Some utility functions
+
 Here are some functions that you may find them helpful, but they are not in the BAllC class.
+
 #### VirtualOffset
 ```javascript
 //This Class initiate the vitual offset of the bgzf file format. 
@@ -100,5 +99,5 @@ function queryBAIIC(chrRange, hexString, refID)
 async function queryChunk(fileHandle, blockAddress ,startOffset, endOffset)
 ```
 
-### BAllC file samples
-We also provided some BAllC samples for the test usages. You can download the samples [here](https://wangftp.wustl.edu/~dli/ballc/ballc/).
+### Sample BAllC file
+We also provided some BAllC sample files (obtained from Wei Tian) for test. You can download the some files from [here](https://wangftp.wustl.edu/~dli/ballc/ballc/).
