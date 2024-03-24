@@ -1,9 +1,9 @@
 import filehandle from "generic-filehandle";
 const { LocalFile, RemoteFile, BlobFile } = filehandle;
 import fetch from "node-fetch";
-import { Buffer } from "buffer";
+// import { Buffer } from "buffer";
 import { unzip } from "@gmod/bgzf-filehandle";
-
+import BinaryParser from "./binary.js";
 //todo: 1. sc==0/1, mc and cov type.
 
 //The length is defined by the bytes number, 1 hex number is 4 bits, 1 byte = 2 hex number = 8 bits.
@@ -28,7 +28,7 @@ const L_NAME_LENGTH = 4;
 const REF_LEN_LENGTH = 4;
 const MC_RECORD_SIZE = 10;
 
-const MADEUP_HEADER_SIZE = 5000;
+const MADEUP_HEADER_SIZE = 4096;
 
 class VirtualOffset {
     constructor(blockAddress, blockOffset) {
@@ -105,13 +105,18 @@ class BAllC {
         const ref_id = this.header["refs"].findIndex((dict) => dict["ref_name"] === inputChrRange.chr);
         const chunkAddress = await queryBGZFIndex(this.indexData, inputChrRange, ref_id);
         const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
-        const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
+        const mc_records = reviseDuplicates(
+            this.header["refs"],
+            mc_records_with_repeated_items,
+            inputChrRange.start,
+            inputChrRange.end
+        );
         // console.log(mc_records);
         return mc_records;
     }
 
     async getHeader() {
-        const headerBuff = Buffer.allocUnsafe(MADEUP_HEADER_SIZE);
+        const headerBuff = Buffer.alloc(MADEUP_HEADER_SIZE);
         const { headerBytesRead } = await this.ballcFileHandle.read(headerBuff, 0, MADEUP_HEADER_SIZE, 0);
         const ungzipedHeader = await unzip(headerBuff);
         const header = viewHeaderBAIIC(ungzipedHeader);
@@ -129,7 +134,7 @@ function reviseDuplicates(herderRefs, list, start, end) {
     const uniqueList = [];
     list.forEach((item) => {
         if (!hasItem(uniqueList, item) && start <= item.pos && end >= item.pos) {
-            item['chr'] = herderRefs[item['ref_id']]['ref_name'];
+            item["chr"] = herderRefs[item["ref_id"]]["ref_name"];
             uniqueList.push(item);
         }
     });
@@ -249,7 +254,7 @@ function hex_to_utf8(hex_string) {
     return utf8_string;
 }
 
-function viewHeaderBAIIC(file_content) {
+function viewHeaderBAIIC2(file_content) {
     let header = {};
     let positionNow = 0;
     const magicBuf = file_content.slice(positionNow, positionNow + MAGIC_LENGTH);
@@ -301,6 +306,31 @@ function viewHeaderBAIIC(file_content) {
     }
     header["refs"] = refs;
 
+    return header;
+}
+
+function viewHeaderBAIIC(file_content) {
+    let header = {};
+    const parser = new BinaryParser(new DataView(file_content.buffer));
+    header["magic"] = parser.getFixedLengthString(MAGIC_LENGTH);
+    header["version"] = parser.getByte();
+    header["version_minor"] = parser.getByte();
+    header["sc"] = parser.getByte();
+    header["I_assembly"] = parser.getUInt();
+    header["assembly_text"] = parser.getFixedLengthString(header["I_assembly"]);
+    header["I_text"] = parser.getUInt();
+    header["header_text"] = parser.getFixedLengthString(header["I_text"]);
+    header["n_refs"] = parser.getUShort();
+    let refs = [];
+    for (let i = 0; i < header["n_refs"]; i++) {
+        const ref = {};
+        ref["l_name"] = parser.getUInt();
+        ref["ref_name"] = parser.getFixedLengthString(ref["l_name"]);
+        ref["ref_len"] = parser.getUInt();
+        refs.push(ref);
+    }
+    header["refs"] = refs;
+    // console.log(header);
     return header;
 }
 
@@ -374,24 +404,49 @@ async function queryBAllCChunks(fileHandle, chunks) {
     return mc_records_with_repeated_items;
 }
 
-async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
+async function queryChunk2(fileHandle, blockAddress, startOffset, endOffset) {
     endOffset += 2 * MC_RECORD_SIZE;
-    const chunkBuf = Buffer.allocUnsafe(endOffset);
+    const chunkBuf = Buffer.alloc(endOffset);
     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
     const unzippedChunk = await unzip(chunkBuf);
-    const chunk = unzippedChunk.slice(startOffset, endOffset);
+    const chunk = unzippedChunk.subarray(startOffset, endOffset);
     const leng_mc_cov = 2;
     let mc_records = [];
     for (let positionStartNow = 0; positionStartNow <= chunk.length - MC_RECORD_SIZE; ) {
         let mc_record = {};
-        mc_record["pos"] = chunk.slice(positionStartNow, positionStartNow + 4).readUInt32LE();
+        mc_record["pos"] = chunk.subarray(positionStartNow, positionStartNow + 4).readUInt32LE();
         positionStartNow += 4;
-        mc_record["ref_id"] = chunk.slice(positionStartNow, positionStartNow + 2).readUInt16LE();
+        mc_record["ref_id"] = chunk.subarray(positionStartNow, positionStartNow + 2).readUInt16LE();
         positionStartNow += 2;
-        mc_record["mc"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
+        mc_record["mc"] = chunk.subarray(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
         positionStartNow += leng_mc_cov;
-        mc_record["cov"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
+        mc_record["cov"] = chunk.subarray(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
         positionStartNow += leng_mc_cov;
+        mc_records.push(mc_record);
+    }
+    return mc_records;
+}
+
+async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
+    endOffset += 2 * MC_RECORD_SIZE;
+    const chunkBuf = Buffer.alloc(endOffset);
+    const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
+    const unzippedChunk = await unzip(chunkBuf);
+    const chunk = unzippedChunk.subarray(startOffset, endOffset);
+    const parser = new BinaryParser(new DataView(chunk.buffer));
+    const leng_mc_cov = 2;
+    let mc_records = [];
+    for (let positionStartNow = 0; positionStartNow <= chunk.length - MC_RECORD_SIZE; ) {
+        let mc_record = {};
+        mc_record["pos"] = parser.getUInt();
+        positionStartNow += 4;
+        mc_record["ref_id"] = parser.getUShort();
+        positionStartNow += 2;
+        mc_record["mc"] = parser.getUShort();
+        positionStartNow += leng_mc_cov;
+        mc_record["cov"] = parser.getUShort();
+        positionStartNow += leng_mc_cov;
+        // console.log(mc_record);
         mc_records.push(mc_record);
     }
     return mc_records;

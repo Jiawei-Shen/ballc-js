@@ -19,6 +19,6 @@ async function queryBAllC(filePath, range) {
 //remote test
 const results = await queryBAllC(
     { url: "https://wangftp.wustl.edu/~dli/ballc/ballc/HBA_200622_H1930001_A46_1_P2-1-F3-K1.ballc" },
-    "chr1:0-1000000"
+    "chr7:26733027-27694134"
 );
 console.log(results);
