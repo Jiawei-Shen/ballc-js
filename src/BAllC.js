@@ -73,6 +73,7 @@ class BAllC {
         if (args.path) {
             this.path = args.path;
             this.ballcFileHandle = new LocalFile(this.path);
+            this.indexFile = new LocalFile(this.path + ".bci");
         } else if (args.blob) {
             this.ballcFileHandle = new BlobFile(args.blob);
         } else if (args.url) {
@@ -80,6 +81,7 @@ class BAllC {
             this.remote = true;
             this.ballcFileHandle = new RemoteFile(this.url, { fetch });
             this.indexUrl = args.url + ".bci";
+            this.indexFile = new RemoteFile(this.indexUrl, { fetch });
         } else if (args.indexUrl) {
             this.indexUrl = args.indexUrl;
         } else if (args.cmetaUrl) {
@@ -87,7 +89,7 @@ class BAllC {
         } else {
             throw Error("Arguments must include blob, url, or url");
         }
-        this.indexFile = this.indexUrl ? new RemoteFile(this.indexUrl, { fetch }) : null;
+        // this.indexFile = this.indexUrl ? new RemoteFile(this.indexUrl, { fetch }) : null;
         this.header = null;
         this.indexData = null;
         this.initiated = false; // if the file has been initiated, header and index data are loaded
@@ -104,9 +106,14 @@ class BAllC {
         checkRangeRef(this.header, inputChrRange);
         const ref_id = this.header["refs"].findIndex((dict) => dict["ref_name"] === inputChrRange.chr);
         const chunkAddress = await queryBGZFIndex(this.indexData, inputChrRange, ref_id);
-        const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
+
+        // const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
+        // const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
+
+        const mc_records_with_repeated_items = await queryChunks(this.ballcFileHandle, chunkAddress);
         const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
         // console.log(mc_records);
+
         return mc_records;
     }
 
@@ -125,11 +132,12 @@ class BAllC {
     }
 }
 
-function reviseDuplicates(herderRefs, list, start, end) {
+function reviseDuplicates(headerRefs, list, start, end) {
     const uniqueList = [];
     list.forEach((item) => {
         if (!hasItem(uniqueList, item) && start <= item.pos && end >= item.pos) {
-            item['chr'] = herderRefs[item['ref_id']]['ref_name'];
+            // console.log(item['ref_id']);
+            item['chr'] = headerRefs[item['ref_id']]['ref_name'];
             uniqueList.push(item);
         }
     });
@@ -137,19 +145,13 @@ function reviseDuplicates(herderRefs, list, start, end) {
     return uniqueList;
 }
 
-function hasItem(list, item) {
-    return list.some((element) => isEqual(element, item));
-}
-
-function isEqual(obj1, obj2) {
-    // Compare properties of obj1 and obj2
-    // Assuming both objects have the same keys
-    for (let key in obj1) {
-        if (obj1[key] !== obj2[key]) {
-            return false;
-        }
+function hasItem(list, currentItem) {
+    const index = list.findIndex(item => currentItem.pos === item.pos);
+    if(index === -1){
+        return false
+    } else {
+        return true
     }
-    return true;
 }
 
 function reg_to_bin(beg, end) {
@@ -374,15 +376,26 @@ async function queryBAllCChunks(fileHandle, chunks) {
     return mc_records_with_repeated_items;
 }
 
+function arrangeBAllCChunks(chunks) {
+    let chunkSet = new Set();
+    chunks.forEach(item => {
+        chunkSet.add(item['chunkStart'].blockAddress);
+        chunkSet.add(item['chunkEnd'].blockAddress);
+    });
+    let sortedArray = Array.from(chunkSet).sort((a, b) => a - b);
+    return sortedArray;
+}
+
 async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
-    endOffset += 2 * MC_RECORD_SIZE;
+    // endOffset += 2 * MC_RECORD_SIZE;
+    endOffset = (endOffset + 2 * MC_RECORD_SIZE > 65535) ? 65535 : endOffset + 2 * MC_RECORD_SIZE;
     const chunkBuf = Buffer.allocUnsafe(endOffset);
     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
     const unzippedChunk = await unzip(chunkBuf);
     const chunk = unzippedChunk.slice(startOffset, endOffset);
     const leng_mc_cov = 2;
     let mc_records = [];
-    for (let positionStartNow = 0; positionStartNow <= chunk.length - MC_RECORD_SIZE; ) {
+    for (let positionStartNow = 0; positionStartNow < chunk.length - MC_RECORD_SIZE; ) {
         let mc_record = {};
         mc_record["pos"] = chunk.slice(positionStartNow, positionStartNow + 4).readUInt32LE();
         positionStartNow += 4;
@@ -397,11 +410,82 @@ async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
     return mc_records;
 }
 
+async function queryChunks(fileHandle, chunks) {
+    let mc_records_with_repeated_items = [];
+    const blocksAddressArray = arrangeBAllCChunks(chunks);
+    const startBlockOffset = chunks[0]['chunkStart'].blockOffset;
+    const endBlockOffset = chunks[chunks.length - 1]['chunkEnd'].blockOffset;
+
+    if(blocksAddressArray.length === 1){
+        const mc_records_chunk = await queryChunk(
+            fileHandle,
+            blocksAddressArray[0],
+            startBlockOffset,
+            endBlockOffset
+        );
+        mc_records_with_repeated_items.push(...mc_records_chunk);
+    } else if(blocksAddressArray.length === 2){
+        const mc_records_chunk_begin = await queryChunk(
+            fileHandle,
+            blocksAddressArray[0],
+            startBlockOffset,
+            65535
+        );
+        mc_records_with_repeated_items.push(...mc_records_chunk_begin);
+
+        const mc_records_chunk_end = await queryChunk(
+            fileHandle,
+            blocksAddressArray[1],
+            endBlockOffset % MC_RECORD_SIZE,
+            endBlockOffset
+        );
+        mc_records_with_repeated_items.push(...mc_records_chunk_end);
+    } else if(blocksAddressArray.length > 2) {
+        const mc_records_chunk_begin = await queryChunk(
+            fileHandle,
+            blocksAddressArray[0],
+            startBlockOffset,
+            65535
+        );
+        mc_records_with_repeated_items.push(...mc_records_chunk_begin);
+
+        const chunksMiddle = blocksAddressArray.slice(1, -1);
+        await Promise.all(
+            chunksMiddle.map(async (chunk, index) => {
+                const mc_records_chunk_middle = await queryChunk(
+                    fileHandle,
+                    chunk,
+                    endBlockOffset % MC_RECORD_SIZE,
+                    65535
+                );
+                mc_records_with_repeated_items.push(...mc_records_chunk_middle);
+            })
+        );
+
+        const mc_records_chunk_end = await queryChunk(
+            fileHandle,
+            blocksAddressArray[1],
+            endBlockOffset % MC_RECORD_SIZE,
+            endBlockOffset
+        );
+        mc_records_with_repeated_items.push(...mc_records_chunk_end);
+    } else {
+        await Promise.all(
+            chunks.map(async (chunk, index) => {
+                const chunk_mc_records = await queryChunkNew(fileHandle, chunk);
+                mc_records_with_repeated_items.push(...chunk_mc_records);
+            })
+        );
+    }
+
+    return mc_records_with_repeated_items;
+}
+
 async function queryChunkNew(fileHandle, chunk) {
     const startBlock = chunk["chunkStart"];
     const endBlock = chunk["chunkEnd"];
     let mc_records = [];
-    if (startBlock["blockAddress"] == endBlock["blockAddress"]) {
+    if (startBlock["blockAddress"] == endBlock["blockAddress"]) { //Only query one block
         const mc_records_chunk = await queryChunk(
             fileHandle,
             startBlock["blockAddress"],
@@ -410,7 +494,7 @@ async function queryChunkNew(fileHandle, chunk) {
         );
         mc_records.push(...mc_records_chunk);
     } else {
-        const chunkStart_mc_records = await queryChunk(
+        const chunkStart_mc_records = await queryChunk( //Query two blocks
             fileHandle,
             startBlock["blockAddress"],
             startBlock["blockOffset"],
