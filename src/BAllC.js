@@ -436,17 +436,17 @@ async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
     const parser = new BinaryParser(new DataView(chunk.buffer));
     const leng_mc_cov = 2;
     let mc_records = [];
-    for (let positionStartNow = 0; positionStartNow <= chunk.length - MC_RECORD_SIZE; ) {
+    for (
+        let positionStartNow = 0;
+        positionStartNow <= chunk.length - MC_RECORD_SIZE;
+        positionStartNow += MC_RECORD_SIZE
+    ) {
         let mc_record = {};
         mc_record["pos"] = parser.getUInt();
-        positionStartNow += 4;
         mc_record["ref_id"] = parser.getUShort();
-        positionStartNow += 2;
         mc_record["mc"] = parser.getUShort();
-        positionStartNow += leng_mc_cov;
         mc_record["cov"] = parser.getUShort();
-        positionStartNow += leng_mc_cov;
-        // console.log(mc_record);
+        console.log(mc_record);
         mc_records.push(mc_record);
     }
     return mc_records;
