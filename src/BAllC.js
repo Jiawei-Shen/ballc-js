@@ -433,7 +433,13 @@ async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
     const unzippedChunk = await unzip(chunkBuf);
     const chunk = unzippedChunk.subarray(startOffset, endOffset);
-    const parser = new BinaryParser(new DataView(chunk.buffer));
+
+    // Modify the buffer assignment.
+    const subChunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+
+    // const parser = new BinaryParser(new DataView(chunk.buffer));
+    const parser = new BinaryParser(new DataView(subChunkBuffer));
+
     const leng_mc_cov = 2;
     let mc_records = [];
     for (let positionStartNow = 0; positionStartNow <= chunk.length - MC_RECORD_SIZE; ) {
