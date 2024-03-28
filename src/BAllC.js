@@ -1,8 +1,9 @@
 import filehandle from "generic-filehandle";
 const { LocalFile, RemoteFile, BlobFile } = filehandle;
 import fetch from "node-fetch";
-import { Buffer } from "buffer";
+// import { Buffer } from "buffer";
 import { unzip } from "@gmod/bgzf-filehandle";
+import BinaryParser from "./binary.js";
 
 //todo: 1. sc==0/1, mc and cov type.
 
@@ -28,7 +29,7 @@ const L_NAME_LENGTH = 4;
 const REF_LEN_LENGTH = 4;
 const MC_RECORD_SIZE = 10;
 
-const MADEUP_HEADER_SIZE = 5000;
+const MADEUP_HEADER_SIZE = 4096;
 
 class VirtualOffset {
     constructor(blockAddress, blockOffset) {
@@ -87,7 +88,7 @@ class BAllC {
         } else if (args.cmetaUrl) {
             this.cmetaUrl = args.cmetaUrl;
         } else {
-            throw Error("Arguments must include blob, url, or url");
+            throw Error("Arguments must include blob, url, or path");
         }
         // this.indexFile = this.indexUrl ? new RemoteFile(this.indexUrl, { fetch }) : null;
         this.header = null;
@@ -110,18 +111,24 @@ class BAllC {
         // const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
         // const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
 
+        //queryChunks function improve the efficiency!
         const mc_records_with_repeated_items = await queryChunks(this.ballcFileHandle, chunkAddress);
-        const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
+        const mc_records = reviseDuplicates(
+            this.header["refs"],
+            mc_records_with_repeated_items,
+            inputChrRange.start,
+            inputChrRange.end);
         // console.log(mc_records);
 
         return mc_records;
     }
 
     async getHeader() {
-        const headerBuff = Buffer.allocUnsafe(MADEUP_HEADER_SIZE);
+        const headerBuff = Buffer.alloc(MADEUP_HEADER_SIZE);
         const { headerBytesRead } = await this.ballcFileHandle.read(headerBuff, 0, MADEUP_HEADER_SIZE, 0);
         const ungzipedHeader = await unzip(headerBuff);
-        const header = viewHeaderBAIIC(ungzipedHeader);
+        // const header = viewHeaderBAIIC(ungzipedHeader);
+        const header = viewHeaderBAIICWithBinaryParser(ungzipedHeader);
         return header;
     }
 
@@ -137,7 +144,7 @@ function reviseDuplicates(headerRefs, list, start, end) {
     list.forEach((item) => {
         if (!hasItem(uniqueList, item) && start <= item.pos && end >= item.pos) {
             // console.log(item['ref_id']);
-            item['chr'] = headerRefs[item['ref_id']]['ref_name'];
+            item["chr"] = headerRefs[item["ref_id"]]["ref_name"];
             uniqueList.push(item);
         }
     });
@@ -233,23 +240,6 @@ function int_to_hex(int_string) {
     return reversed_hex_string;
 }
 
-function hex_to_utf8(hex_string) {
-    // Ensure the length of the hex string is even
-    if (hex_string.length % 2 !== 0) {
-        throw new Error("Hex string must have an even length");
-    }
-
-    // Split the hex string into pairs of characters
-    const hex_pairs = [];
-    for (let i = 0; i < hex_string.length; i += 2) {
-        hex_pairs.push(hex_string.slice(i, i + 2));
-    }
-
-    // Convert each pair to a character and join them to form a string
-    const utf8_string = hex_pairs.map((hex_pair) => String.fromCharCode(parseInt(hex_pair, 16))).join("");
-
-    return utf8_string;
-}
 
 function viewHeaderBAIIC(file_content) {
     let header = {};
@@ -303,6 +293,31 @@ function viewHeaderBAIIC(file_content) {
     }
     header["refs"] = refs;
 
+    return header;
+}
+
+function viewHeaderBAIICWithBinaryParser(file_content) {
+    let header = {};
+    const parser = new BinaryParser(new DataView(file_content.buffer));
+    header["magic"] = parser.getFixedLengthString(MAGIC_LENGTH);
+    header["version"] = parser.getByte();
+    header["version_minor"] = parser.getByte();
+    header["sc"] = parser.getByte();
+    header["I_assembly"] = parser.getUInt();
+    header["assembly_text"] = parser.getFixedLengthString(header["I_assembly"]);
+    header["I_text"] = parser.getUInt();
+    header["header_text"] = parser.getFixedLengthString(header["I_text"]);
+    header["n_refs"] = parser.getUShort();
+    let refs = [];
+    for (let i = 0; i < header["n_refs"]; i++) {
+        const ref = {};
+        ref["l_name"] = parser.getUInt();
+        ref["ref_name"] = parser.getFixedLengthString(ref["l_name"]);
+        ref["ref_len"] = parser.getUInt();
+        refs.push(ref);
+    }
+    header["refs"] = refs;
+    // console.log(header);
     return header;
 }
 
@@ -410,6 +425,37 @@ async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
     return mc_records;
 }
 
+async function queryChunkWithBinaryParser(fileHandle, blockAddress, startOffset, endOffset) {
+    endOffset += 2 * MC_RECORD_SIZE;
+    const chunkBuf = Buffer.alloc(endOffset);
+    const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
+    const unzippedChunk = await unzip(chunkBuf);
+    const chunk = unzippedChunk.subarray(startOffset, endOffset);
+
+    // Modify the buffer assignment.
+    const subChunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+
+    // const parser = new BinaryParser(new DataView(chunk.buffer));
+    const parser = new BinaryParser(new DataView(subChunkBuffer));
+
+    const leng_mc_cov = 2;
+    let mc_records = [];
+    for (
+        let positionStartNow = 0;
+        positionStartNow <= chunk.length - MC_RECORD_SIZE;
+        positionStartNow += MC_RECORD_SIZE
+    ) {
+        let mc_record = {};
+        mc_record["pos"] = parser.getUInt();
+        mc_record["ref_id"] = parser.getUShort();
+        mc_record["mc"] = parser.getUShort();
+        mc_record["cov"] = parser.getUShort();
+        // console.log(mc_record);
+        mc_records.push(mc_record);
+    }
+    return mc_records;
+}
+
 async function queryChunks(fileHandle, chunks) {
     let mc_records_with_repeated_items = [];
     const blocksAddressArray = arrangeBAllCChunks(chunks);
@@ -417,7 +463,7 @@ async function queryChunks(fileHandle, chunks) {
     const endBlockOffset = chunks[chunks.length - 1]['chunkEnd'].blockOffset;
 
     if(blocksAddressArray.length === 1){
-        const mc_records_chunk = await queryChunk(
+        const mc_records_chunk = await queryChunkWithBinaryParser(
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
@@ -425,7 +471,7 @@ async function queryChunks(fileHandle, chunks) {
         );
         mc_records_with_repeated_items.push(...mc_records_chunk);
     } else if(blocksAddressArray.length === 2){
-        const mc_records_chunk_begin = await queryChunk(
+        const mc_records_chunk_begin = await queryChunkWithBinaryParser(
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
@@ -433,7 +479,7 @@ async function queryChunks(fileHandle, chunks) {
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_begin);
 
-        const mc_records_chunk_end = await queryChunk(
+        const mc_records_chunk_end = await queryChunkWithBinaryParser(
             fileHandle,
             blocksAddressArray[1],
             endBlockOffset % MC_RECORD_SIZE,
@@ -441,7 +487,7 @@ async function queryChunks(fileHandle, chunks) {
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_end);
     } else if(blocksAddressArray.length > 2) {
-        const mc_records_chunk_begin = await queryChunk(
+        const mc_records_chunk_begin = await queryChunkWithBinaryParser(
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
@@ -452,7 +498,7 @@ async function queryChunks(fileHandle, chunks) {
         const chunksMiddle = blocksAddressArray.slice(1, -1);
         await Promise.all(
             chunksMiddle.map(async (chunk, index) => {
-                const mc_records_chunk_middle = await queryChunk(
+                const mc_records_chunk_middle = await queryChunkWithBinaryParser(
                     fileHandle,
                     chunk,
                     endBlockOffset % MC_RECORD_SIZE,
@@ -462,7 +508,7 @@ async function queryChunks(fileHandle, chunks) {
             })
         );
 
-        const mc_records_chunk_end = await queryChunk(
+        const mc_records_chunk_end = await queryChunkWithBinaryParser(
             fileHandle,
             blocksAddressArray[1],
             endBlockOffset % MC_RECORD_SIZE,
@@ -486,7 +532,7 @@ async function queryChunkNew(fileHandle, chunk) {
     const endBlock = chunk["chunkEnd"];
     let mc_records = [];
     if (startBlock["blockAddress"] == endBlock["blockAddress"]) { //Only query one block
-        const mc_records_chunk = await queryChunk(
+        const mc_records_chunk = await queryChunkWithBinaryParser(
             fileHandle,
             startBlock["blockAddress"],
             startBlock["blockOffset"],
@@ -494,14 +540,14 @@ async function queryChunkNew(fileHandle, chunk) {
         );
         mc_records.push(...mc_records_chunk);
     } else {
-        const chunkStart_mc_records = await queryChunk( //Query two blocks
+        const chunkStart_mc_records = await queryChunkWithBinaryParser( //Query two blocks
             fileHandle,
             startBlock["blockAddress"],
             startBlock["blockOffset"],
             65535
         );
         mc_records.push(...chunkStart_mc_records);
-        const chunkEnd_mc_records = await queryChunk(
+        const chunkEnd_mc_records = await queryChunkWithBinaryParser(
             fileHandle,
             endBlock["blockAddress"],
             endBlock["blockOffset"] % MC_RECORD_SIZE,
