@@ -27,7 +27,6 @@ BinaryParser.prototype.getByte = function () {
 }
 
 BinaryParser.prototype.getShort = function () {
-
     var retValue = this.view.getInt16(this.position, this.littleEndian);
     this.position += 2
     return retValue;
@@ -48,7 +47,6 @@ BinaryParser.prototype.getUShort = function () {
 
 
 BinaryParser.prototype.getInt = function () {
-
     var retValue = this.view.getInt32(this.position, this.littleEndian);
     this.position += 4;
     return retValue;

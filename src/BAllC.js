@@ -27,7 +27,8 @@ let HEADER_TEXT_LENGTH;
 const N_REFS_LENGTH = 2;
 const L_NAME_LENGTH = 4;
 const REF_LEN_LENGTH = 4;
-const MC_RECORD_SIZE = 10;
+const MC_RECORD_SIZE_SC0 = 10;
+const MC_RECORD_SIZE_SC1 = 8;
 
 const MADEUP_HEADER_SIZE = 4096;
 
@@ -106,13 +107,14 @@ class BAllC {
         // console.log(`Query BAllC File：${this.ballcPath}, and Chromosome Range: ${chrRange}`);
         checkRangeRef(this.header, inputChrRange);
         const ref_id = this.header["refs"].findIndex((dict) => dict["ref_name"] === inputChrRange.chr);
-        const chunkAddress = await queryBGZFIndex(this.indexData, inputChrRange, ref_id);
+        const scFlag = this.header["sc"];
+        const chunkAddress = queryBGZFIndex(inputChrRange, this.indexData, ref_id);
 
-        // const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress);
+        // const mc_records_with_repeated_items = await queryBAllCChunks(this.ballcFileHandle, chunkAddress, scFlag);
         // const mc_records = reviseDuplicates(this.header["refs"], mc_records_with_repeated_items, inputChrRange.start, inputChrRange.end);
 
         //queryChunks function improve the efficiency!
-        const mc_records_with_repeated_items = await queryChunks(this.ballcFileHandle, chunkAddress);
+        const mc_records_with_repeated_items = await queryChunks(this.ballcFileHandle, chunkAddress, scFlag);
         const mc_records = reviseDuplicates(
             this.header["refs"],
             mc_records_with_repeated_items,
@@ -153,7 +155,7 @@ function reviseDuplicates(headerRefs, list, start, end) {
 }
 
 function hasItem(list, currentItem) {
-    const index = list.findIndex(item => currentItem.pos === item.pos);
+    const index = list.findIndex(item => (currentItem.pos === item.pos) && (currentItem.ref_id === item.ref_id));
     if(index === -1){
         return false
     } else {
@@ -240,7 +242,6 @@ function int_to_hex(int_string) {
     return reversed_hex_string;
 }
 
-
 function viewHeaderBAIIC(file_content) {
     let header = {};
     let positionNow = 0;
@@ -321,10 +322,6 @@ function viewHeaderBAIICWithBinaryParser(file_content) {
     return header;
 }
 
-async function queryBGZFIndex(indexData, chrRange, ref_id) {
-    return queryBAIIC(chrRange, indexData, ref_id);
-}
-
 function BintoVirtualOffset(hexString, pos) {
     const chunkStartBin = hexString.substring(pos + 12, pos + 28);
     const chunkStart_block_offset = hex_to_int(chunkStartBin.substring(0, 4));
@@ -339,7 +336,7 @@ function BintoVirtualOffset(hexString, pos) {
     return { chunkStart: chunkStart, chunkEnd: chunkEnd };
 }
 
-function queryBAIIC(chrRange, hexString, refID) {
+function queryBGZFIndex(chrRange, hexString, refID) {
     const startBin = reg_to_bin(chrRange.start, chrRange.start + 1);
     const endBin = reg_to_bin(chrRange.end, chrRange.end + 1);
 
@@ -380,11 +377,11 @@ function queryBAIIC(chrRange, hexString, refID) {
     return chunks;
 }
 
-async function queryBAllCChunks(fileHandle, chunks) {
+async function queryBAllCChunks(fileHandle, chunks, scFlag) {
     let mc_records_with_repeated_items = [];
     await Promise.all(
         chunks.map(async (chunk, index) => {
-            const chunk_mc_records = await queryChunkNew(fileHandle, chunk);
+            const chunk_mc_records = await queryChunkNew(fileHandle, chunk, scFlag);
             mc_records_with_repeated_items.push(...chunk_mc_records);
         })
     );
@@ -401,44 +398,53 @@ function arrangeBAllCChunks(chunks) {
     return sortedArray;
 }
 
-async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
-    // endOffset += 2 * MC_RECORD_SIZE;
-    endOffset = (endOffset + 2 * MC_RECORD_SIZE > 65535) ? 65535 : endOffset + 2 * MC_RECORD_SIZE;
-    const chunkBuf = Buffer.allocUnsafe(endOffset);
-    const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
-    const unzippedChunk = await unzip(chunkBuf);
-    const chunk = unzippedChunk.slice(startOffset, endOffset);
-    const leng_mc_cov = 2;
-    let mc_records = [];
-    for (let positionStartNow = 0; positionStartNow < chunk.length - MC_RECORD_SIZE; ) {
-        let mc_record = {};
-        mc_record["pos"] = chunk.slice(positionStartNow, positionStartNow + 4).readUInt32LE();
-        positionStartNow += 4;
-        mc_record["ref_id"] = chunk.slice(positionStartNow, positionStartNow + 2).readUInt16LE();
-        positionStartNow += 2;
-        mc_record["mc"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
-        positionStartNow += leng_mc_cov;
-        mc_record["cov"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
-        positionStartNow += leng_mc_cov;
-        mc_records.push(mc_record);
-    }
-    return mc_records;
-}
+// async function queryChunk(fileHandle, blockAddress, startOffset, endOffset) {
+//     // endOffset += 2 * MC_RECORD_SIZE;
+//     endOffset = (endOffset + 2 * MC_RECORD_SIZE > 65535) ? 65535 : endOffset + 2 * MC_RECORD_SIZE;
+//     const chunkBuf = Buffer.allocUnsafe(endOffset);
+//     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
+//     const unzippedChunk = await unzip(chunkBuf);
+//     const chunk = unzippedChunk.slice(startOffset, endOffset);
+//     const leng_mc_cov = 2;
+//     let mc_records = [];
+//     for (let positionStartNow = 0; positionStartNow < chunk.length - MC_RECORD_SIZE; ) {
+//         let mc_record = {};
+//         mc_record["pos"] = chunk.slice(positionStartNow, positionStartNow + 4).readUInt32LE();
+//         positionStartNow += 4;
+//         mc_record["ref_id"] = chunk.slice(positionStartNow, positionStartNow + 2).readUInt16LE();
+//         positionStartNow += 2;
+//         mc_record["mc"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
+//         positionStartNow += leng_mc_cov;
+//         mc_record["cov"] = chunk.slice(positionStartNow, positionStartNow + leng_mc_cov).readUInt16LE();
+//         positionStartNow += leng_mc_cov;
+//         mc_records.push(mc_record);
+//     }
+//     return mc_records;
+// }
 
-async function queryChunkWithBinaryParser(fileHandle, blockAddress, startOffset, endOffset) {
+async function queryChunkWithBinaryParser(fileHandle, blockAddress, startOffset, endOffset, scFlag) {
+    let MC_RECORD_SIZE;
+    if(scFlag == 0){
+        MC_RECORD_SIZE = MC_RECORD_SIZE_SC0
+    } else { //sc == 1
+        MC_RECORD_SIZE = MC_RECORD_SIZE_SC1
+    }
     endOffset += 2 * MC_RECORD_SIZE;
     const chunkBuf = Buffer.alloc(endOffset);
     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
     const unzippedChunk = await unzip(chunkBuf);
     const chunk = unzippedChunk.subarray(startOffset, endOffset);
+    // const parser = new BinaryParser(new DataView(chunk.buffer));
 
     // Modify the buffer assignment.
     const subChunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
-
-    // const parser = new BinaryParser(new DataView(chunk.buffer));
     const parser = new BinaryParser(new DataView(subChunkBuffer));
 
-    const leng_mc_cov = 2;
+    // Create a new Buffer without slice function.
+    // const slicedBuffer = Buffer.alloc(endOffset - startOffset);
+    // chunk.copy(slicedBuffer, 0, chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+    // const parser = new BinaryParser(new DataView(slicedBuffer.buffer, slicedBuffer.byteOffset, slicedBuffer.byteLength));
+
     let mc_records = [];
     for (
         let positionStartNow = 0;
@@ -448,15 +454,30 @@ async function queryChunkWithBinaryParser(fileHandle, blockAddress, startOffset,
         let mc_record = {};
         mc_record["pos"] = parser.getUInt();
         mc_record["ref_id"] = parser.getUShort();
-        mc_record["mc"] = parser.getUShort();
-        mc_record["cov"] = parser.getUShort();
+        // mc_record["mc"] = parser.getByte();
+        // mc_record["cov"] = parser.getByte();
+
+        // ??This is weired, the scFlag is opposite to the documentation.
+        if (scFlag === 1){
+            mc_record["mc"] = parser.getByte();
+            mc_record["cov"] = parser.getByte();
+        } else { // sc == 1
+            mc_record["mc"] = parser.getUShort();
+            mc_record["cov"] = parser.getUShort();
+        }
         // console.log(mc_record);
         mc_records.push(mc_record);
     }
     return mc_records;
 }
 
-async function queryChunks(fileHandle, chunks) {
+async function queryChunks(fileHandle, chunks, scFlag) {
+    let MC_RECORD_SIZE;
+    if(scFlag == 0){
+        MC_RECORD_SIZE = MC_RECORD_SIZE_SC0
+    } else { //sc == 1
+        MC_RECORD_SIZE = MC_RECORD_SIZE_SC1
+    }
     let mc_records_with_repeated_items = [];
     const blocksAddressArray = arrangeBAllCChunks(chunks);
     const startBlockOffset = chunks[0]['chunkStart'].blockOffset;
@@ -467,7 +488,8 @@ async function queryChunks(fileHandle, chunks) {
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
-            endBlockOffset
+            endBlockOffset,
+            scFlag
         );
         mc_records_with_repeated_items.push(...mc_records_chunk);
     } else if(blocksAddressArray.length === 2){
@@ -475,7 +497,8 @@ async function queryChunks(fileHandle, chunks) {
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
-            65535
+            65535,
+            scFlag
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_begin);
 
@@ -483,7 +506,8 @@ async function queryChunks(fileHandle, chunks) {
             fileHandle,
             blocksAddressArray[1],
             endBlockOffset % MC_RECORD_SIZE,
-            endBlockOffset
+            endBlockOffset,
+            scFlag
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_end);
     } else if(blocksAddressArray.length > 2) {
@@ -491,7 +515,8 @@ async function queryChunks(fileHandle, chunks) {
             fileHandle,
             blocksAddressArray[0],
             startBlockOffset,
-            65535
+            65535,
+            scFlag
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_begin);
 
@@ -502,7 +527,8 @@ async function queryChunks(fileHandle, chunks) {
                     fileHandle,
                     chunk,
                     endBlockOffset % MC_RECORD_SIZE,
-                    65535
+                    65535,
+                    scFlag
                 );
                 mc_records_with_repeated_items.push(...mc_records_chunk_middle);
             })
@@ -510,15 +536,16 @@ async function queryChunks(fileHandle, chunks) {
 
         const mc_records_chunk_end = await queryChunkWithBinaryParser(
             fileHandle,
-            blocksAddressArray[1],
+            blocksAddressArray[blocksAddressArray.length - 1],
             endBlockOffset % MC_RECORD_SIZE,
-            endBlockOffset
+            endBlockOffset,
+            scFlag
         );
         mc_records_with_repeated_items.push(...mc_records_chunk_end);
     } else {
         await Promise.all(
             chunks.map(async (chunk, index) => {
-                const chunk_mc_records = await queryChunkNew(fileHandle, chunk);
+                const chunk_mc_records = await queryChunkNew(fileHandle, chunk, scFlag);
                 mc_records_with_repeated_items.push(...chunk_mc_records);
             })
         );
@@ -527,7 +554,7 @@ async function queryChunks(fileHandle, chunks) {
     return mc_records_with_repeated_items;
 }
 
-async function queryChunkNew(fileHandle, chunk) {
+async function queryChunkNew(fileHandle, chunk, scFlag) {
     const startBlock = chunk["chunkStart"];
     const endBlock = chunk["chunkEnd"];
     let mc_records = [];
@@ -536,7 +563,8 @@ async function queryChunkNew(fileHandle, chunk) {
             fileHandle,
             startBlock["blockAddress"],
             startBlock["blockOffset"],
-            endBlock["blockOffset"]
+            endBlock["blockOffset"],
+            scFlag
         );
         mc_records.push(...mc_records_chunk);
     } else {
@@ -544,14 +572,16 @@ async function queryChunkNew(fileHandle, chunk) {
             fileHandle,
             startBlock["blockAddress"],
             startBlock["blockOffset"],
-            65535
+            65535,
+            scFlag
         );
         mc_records.push(...chunkStart_mc_records);
         const chunkEnd_mc_records = await queryChunkWithBinaryParser(
             fileHandle,
             endBlock["blockAddress"],
             endBlock["blockOffset"] % MC_RECORD_SIZE,
-            endBlock["blockOffset"]
+            endBlock["blockOffset"],
+            scFlag
         );
         mc_records.push(...chunkEnd_mc_records);
     }
