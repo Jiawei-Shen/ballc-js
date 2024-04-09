@@ -35,7 +35,7 @@ const MADEUP_HEADER_SIZE = 4096;
 class VirtualOffset {
     constructor(blockAddress, blockOffset) {
         this.blockOffset = blockOffset; // < offset of the compressed data block
-        this.blockAddress = blockAddress; // < offset into the uncompressed data
+        this.blockAddress = blockAddress; // < offset into the decompressed data
     }
     toString() {
         return `${this.blockAddress}:${this.blockOffset}`;
