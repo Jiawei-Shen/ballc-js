@@ -128,15 +128,29 @@ class BAllC {
     async getHeader() {
         const headerBuff = Buffer.alloc(MADEUP_HEADER_SIZE);
         const { headerBytesRead } = await this.ballcFileHandle.read(headerBuff, 0, MADEUP_HEADER_SIZE, 0);
-        const ungzipedHeader = await unzip(headerBuff);
-        // const header = viewHeaderBAIIC(ungzipedHeader);
-        const header = viewHeaderBAIICWithBinaryParser(ungzipedHeader);
+
+        // const header = viewHeaderBAIIC(headerBuff); // solution one
+        // const ungzipedHeader = await unzip(headerBuff);
+        // const header = viewHeaderBAIICWithBinaryParser(ungzipedHeader);
+        let header;
+        try{
+            const ungzipedHeader = await unzip(headerBuff);
+            header = viewHeaderBAIICWithBinaryParser(ungzipedHeader);
+        } catch (e){
+            header = viewHeaderBAIIC(headerBuff);
+        }
         return header;
     }
 
     async getIndexData() {
         const buf = await this.indexFile.readFile();
-        const bytes = await unzip(buf);
+        // const bytes = await unzip(buf);
+        let bytes;
+        try{
+            bytes = await unzip(buf);
+        } catch (e){
+            bytes = buf
+        }
         return bytes.toString("hex");
     }
 }
@@ -432,7 +446,13 @@ async function queryChunkWithBinaryParser(fileHandle, blockAddress, startOffset,
     endOffset += 2 * MC_RECORD_SIZE;
     const chunkBuf = Buffer.alloc(endOffset);
     const { allBytesRead } = await fileHandle.read(chunkBuf, 0, endOffset, blockAddress);
-    const unzippedChunk = await unzip(chunkBuf);
+    // const unzippedChunk = await unzip(chunkBuf);
+    let unzippedChunk;
+    try{
+        unzippedChunk = await unzip(chunkBuf);
+    } catch (e){
+        unzippedChunk = chunkBuf;
+    }
     const chunk = unzippedChunk.subarray(startOffset, endOffset);
     // const parser = new BinaryParser(new DataView(chunk.buffer));
 
