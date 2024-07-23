@@ -1,6 +1,6 @@
 {
   "name": "ballc",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "BAllC is a javascript API for reading and querying the BAllC files.",
   "main": "src/BAllC.js",
   "type": "module",
